@@ -9,20 +9,18 @@ import (
 	"github.com/p2eengineering/kalp-sdk-public/kalpsdk"
 )
 
-// Define key names for options
-const nameKey = "name"
-const symbolKey = "symbol"
-const decimalsKey = "decimals"
-const totalSupplyKey = "totalSupply"
+// Key names for token properties
+const (
+	nameKey       = "name"
+	symbolKey     = "symbol"
+	decimalsKey   = "decimals"
+	totalSupplyKey = "totalSupply"
+)
 
-// Define objectType names for prefix
-const allowancePrefix = "allowance"
-
-// Define key names for options
-
-// SmartContract provides functions for transferring tokens between accounts
+// SmartContract manages the transfer and minting of tokens
 type SmartContract struct {
 	kalpsdk.Contract
+	transactions []event // Slice to hold successful transactions
 }
 
 // event provides an organized struct for emitting events
@@ -32,285 +30,145 @@ type event struct {
 	Value int    `json:"value"`
 }
 
-// Mint creates new tokens and adds them to minter's account balance
-// This function triggers a Transfer event
-func (s *SmartContract) Claim(sdk kalpsdk.TransactionContextInterface, amount int, address string) error {
+// NewSmartContract initializes a new SmartContract with an empty transactions list
+func NewSmartContract(contract kalpsdk.Contract) *SmartContract {
+	return &SmartContract{
+		Contract:     contract,
+		transactions: make([]event, 0),
+	}
+}
 
-	// Check if contract has been intilized first
+// Claim mints new tokens to the specified address and triggers a Transfer event
+func (s *SmartContract) Claim(sdk kalpsdk.TransactionContextInterface, amount int, address string) error {
 	initialized, err := checkInitialized(sdk)
 	if err != nil {
-		return fmt.Errorf("failed to check if contract is already initialized: %v", err)
+		return fmt.Errorf("failed to check if contract is initialized: %v", err)
 	}
 	if !initialized {
 		return fmt.Errorf("contract options need to be set before calling any function, call Initialize() to initialize contract")
 	}
 
-	// Check minter authorization - this sample assumes mailabs is the central banker with privilege to mint new tokens
 	clientMSPID, err := sdk.GetClientIdentity().GetMSPID()
 	if err != nil {
 		return fmt.Errorf("failed to get MSPID: %v", err)
 	}
 	if clientMSPID != "mailabs" {
-		return fmt.Errorf("client is not authorized to mint new tokens")
+		return fmt.Errorf("client is not authorized to mint tokens")
 	}
-
-	// Get ID of submitting client identity
-	// minter, err := sdk.GetUserID()
-	// if err != nil {
-	//     return fmt.Errorf("failed to get client id: %v", err)
-	// }
-	minter := address
 
 	if amount <= 0 {
 		return fmt.Errorf("mint amount must be a positive integer")
 	}
 
-	currentBalanceBytes, err := sdk.GetState(minter)
+	currentBalance, err := getBalance(sdk, address)
 	if err != nil {
-		return fmt.Errorf("failed to read minter account %s from world state: %v", minter, err)
-	}
-
-	var currentBalance int
-
-	// If minter current balance doesn't yet exist, we'll create it with a current balance of 0
-	if currentBalanceBytes == nil {
-		currentBalance = 0
-	} else {
-		currentBalance, _ = strconv.Atoi(string(currentBalanceBytes)) // Error handling not needed since Itoa() was used when setting the account balance, guaranteeing it was an integer.
+		return fmt.Errorf("failed to get balance: %v", err)
 	}
 
 	updatedBalance, err := add(currentBalance, amount)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to update balance: %v", err)
 	}
 
-	err = sdk.PutStateWithoutKYC(minter, []byte(strconv.Itoa(updatedBalance)))
+	err = sdk.PutStateWithoutKYC(address, []byte(strconv.Itoa(updatedBalance)))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to update state for address: %v", err)
 	}
 
-	// Update the totalSupply
-	totalSupplyBytes, err := sdk.GetState(totalSupplyKey)
+	totalSupply, err := getTotalSupply(sdk)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve total token supply: %v", err)
+		return fmt.Errorf("failed to get total supply: %v", err)
 	}
 
-	var totalSupply int
-
-	// If no tokens have been minted, initialize the totalSupply
-	if totalSupplyBytes == nil {
-		totalSupply = 0
-	} else {
-		totalSupply, _ = strconv.Atoi(string(totalSupplyBytes)) // Error handling not needed since Itoa() was used when setting the totalSupply, guaranteeing it was an integer.
-	}
-
-	// Add the mint amount to the total supply and update the state
 	totalSupply, err = add(totalSupply, amount)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to update total supply: %v", err)
 	}
 
 	err = sdk.PutStateWithoutKYC(totalSupplyKey, []byte(strconv.Itoa(totalSupply)))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to update total supply in state: %v", err)
 	}
 
-	// Emit the Transfer event
-	transferEvent := event{"0x0", minter, amount}
+	transferEvent := event{"0x0", address, amount}
 	transferEventJSON, err := json.Marshal(transferEvent)
 	if err != nil {
-		return fmt.Errorf("failed to obtain JSON encoding: %v", err)
+		return fmt.Errorf("failed to serialize transfer event: %v", err)
 	}
 	err = sdk.SetEvent("Transfer", transferEventJSON)
 	if err != nil {
 		return fmt.Errorf("failed to set event: %v", err)
 	}
 
-	log.Printf("minter account %s balance updated from %d to %d", minter, currentBalance, updatedBalance)
+	log.Printf("Minted %d tokens to address %s", amount, address)
+	s.recordTransaction("0x0", address, amount)
 
 	return nil
 }
 
-// BalanceOf returns the balance of the given account
+// BalanceOf returns the balance of a specific account
 func (s *SmartContract) BalanceOf(sdk kalpsdk.TransactionContextInterface, account string) (int, error) {
-
-	// Check if contract has been intilized first
 	initialized, err := checkInitialized(sdk)
 	if err != nil {
-		return 0, fmt.Errorf("failed to check if contract is already initialized: %v", err)
+		return 0, fmt.Errorf("failed to check if contract is initialized: %v", err)
 	}
 	if !initialized {
-		return 0, fmt.Errorf("Contract options need to be set before calling any function, call Initialize() to initialize contract")
+		return 0, fmt.Errorf("contract options need to be set before calling any function, call Initialize() to initialize contract")
 	}
 
-	balanceBytes, err := sdk.GetState(account)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read from world state: %v", err)
-	}
-	if balanceBytes == nil {
-		return 0, fmt.Errorf("the account %s does not exist", account)
-	}
-
-	balance, _ := strconv.Atoi(string(balanceBytes)) // Error handling not needed since Itoa() was used when setting the account balance, guaranteeing it was an integer.
-
-	return balance, nil
+	return getBalance(sdk, account)
 }
 
-// TotalSupply returns the total token supply
+// TotalSupply returns the total supply of tokens in the contract
 func (s *SmartContract) TotalSupply(sdk kalpsdk.TransactionContextInterface) (int, error) {
-
-	// Check if contract has been intilized first
 	initialized, err := checkInitialized(sdk)
 	if err != nil {
-		return 0, fmt.Errorf("failed to check if contract is already initialized: %v", err)
+		return 0, fmt.Errorf("failed to check if contract is initialized: %v", err)
 	}
 	if !initialized {
-		return 0, fmt.Errorf("Contract options need to be set before calling any function, call Initialize() to initialize contract")
+		return 0, fmt.Errorf("contract options need to be set before calling any function, call Initialize() to initialize contract")
 	}
 
-	// Retrieve total supply of tokens from state of smart contract
-	totalSupplyBytes, err := sdk.GetState(totalSupplyKey)
-	if err != nil {
-		return 0, fmt.Errorf("failed to retrieve total token supply: %v", err)
-	}
-
-	var totalSupply int
-
-	// If no tokens have been minted, return 0
-	if totalSupplyBytes == nil {
-		totalSupply = 0
-	} else {
-		totalSupply, _ = strconv.Atoi(string(totalSupplyBytes)) // Error handling not needed since Itoa() was used when setting the totalSupply, guaranteeing it was an integer.
-	}
-
-	log.Printf("TotalSupply: %d tokens", totalSupply)
-
-	return totalSupply, nil
+	return getTotalSupply(sdk)
 }
 
-// TransferFrom transfers the value amount from the "from" address to the "to" address
-// This function triggers a Transfer event
+// TransferFrom transfers a specific amount of tokens from one account to another
 func (s *SmartContract) TransferFrom(sdk kalpsdk.TransactionContextInterface, from string, to string, value int) error {
-
-	// Check if contract has been intilized first
 	initialized, err := checkInitialized(sdk)
 	if err != nil {
-		return fmt.Errorf("failed to check if contract is already initialized: %v", err)
+		return fmt.Errorf("failed to check if contract is initialized: %v", err)
 	}
 	if !initialized {
-		return fmt.Errorf("Contract options need to be set before calling any function, call Initialize() to initialize contract")
+		return fmt.Errorf("contract options need to be set before calling any function, call Initialize() to initialize contract")
 	}
 
-	// Get ID of submitting client identity
-	spender, err := sdk.GetUserID()
-	if err != nil {
-		return fmt.Errorf("failed to get client id: %v", err)
+	if from == to {
+		return fmt.Errorf("cannot transfer to the same account")
 	}
 
-	// Create allowanceKey
-	allowanceKey, err := sdk.CreateCompositeKey(allowancePrefix, []string{from, spender})
-	if err != nil {
-		return fmt.Errorf("failed to create the composite key for prefix %s: %v", allowancePrefix, err)
-	}
-
-	// Retrieve the allowance of the spender
-	currentAllowanceBytes, err := sdk.GetState(allowanceKey)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve the allowance for %s from world state: %v", allowanceKey, err)
-	}
-
-	var currentAllowance int
-	currentAllowance, _ = strconv.Atoi(string(currentAllowanceBytes)) // Error handling not needed since Itoa() was used when setting the totalSupply, guaranteeing it was an integer.
-
-	// // Check if transferred value is less than allowance
-	// if currentAllowance < value {
-	// 	return fmt.Errorf("spender does not have enough allowance for transfer")
-	// }
-
-	// Initiate the transfer
 	err = transferHelper(sdk, from, to, value)
 	if err != nil {
-		return fmt.Errorf("failed to transfer: %v", err)
+		return fmt.Errorf("transfer failed: %v", err)
 	}
 
-	// Decrease the allowance
-	updatedAllowance, err := sub(currentAllowance, value)
-	if err != nil {
-		return err
-	}
-
-	err = sdk.PutStateWithoutKYC(allowanceKey, []byte(strconv.Itoa(updatedAllowance)))
-	if err != nil {
-		return err
-	}
-
-	// Emit the Transfer event
 	transferEvent := event{from, to, value}
 	transferEventJSON, err := json.Marshal(transferEvent)
 	if err != nil {
-		return fmt.Errorf("failed to obtain JSON encoding: %v", err)
+		return fmt.Errorf("failed to serialize transfer event: %v", err)
 	}
 	err = sdk.SetEvent("Transfer", transferEventJSON)
 	if err != nil {
 		return fmt.Errorf("failed to set event: %v", err)
 	}
 
-	log.Printf("spender %s allowance updated from %d to %d", spender, currentAllowance, updatedAllowance)
+	log.Printf("Transferred %d tokens from %s to %s", value, from, to)
+	s.recordTransaction(from, to, value)
 
 	return nil
 }
 
-// Name returns a descriptive name for fungible tokens in this contract
-// returns {String} Returns the name of the token
-
-func (s *SmartContract) Name(sdk kalpsdk.TransactionContextInterface) (string, error) {
-
-	// Check if contract has been intilized first
-	initialized, err := checkInitialized(sdk)
-	if err != nil {
-		return "", fmt.Errorf("failed to check if contract is already initialized: %v", err)
-	}
-	if !initialized {
-		return "", fmt.Errorf("Contract options need to be set before calling any function, call Initialize() to initialize contract")
-	}
-
-	bytes, err := sdk.GetState(nameKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to get Name bytes: %s", err)
-	}
-
-	return string(bytes), nil
-}
-
-// Symbol returns an abbreviated name for fungible tokens in this contract.
-// returns {String} Returns the symbol of the token
-
-func (s *SmartContract) Symbol(sdk kalpsdk.TransactionContextInterface) (string, error) {
-
-	// Check if contract has been intilized first
-	initialized, err := checkInitialized(sdk)
-	if err != nil {
-		return "", fmt.Errorf("failed to check if contract is already initialized: %v", err)
-	}
-	if !initialized {
-		return "", fmt.Errorf("Contract options need to be set before calling any function, call Initialize() to initialize contract")
-	}
-
-	bytes, err := sdk.GetState(symbolKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to get Symbol: %v", err)
-	}
-
-	return string(bytes), nil
-}
-
-// Set information for a token and intialize contract.
-// param {String} name The name of the token
-// param {String} symbol The symbol of the token
-// param {String} decimals The decimals used for the token operations
-func (s *SmartContract) Initialize(sdk kalpsdk.TransactionContextInterface, name string, symbol string, decimals string) (bool, error) {
-
-	// Check minter authorization - this sample assumes Org1 is the central banker with privilege to intitialize contract
+// Initialize sets the name, symbol, and decimals for the contract
+func (s *SmartContract) Initialize(sdk kalpsdk.TransactionContextInterface, name, symbol, decimals string) (bool, error) {
 	clientMSPID, err := sdk.GetClientIdentity().GetMSPID()
 	if err != nil {
 		return false, fmt.Errorf("failed to get MSPID: %v", err)
@@ -319,13 +177,12 @@ func (s *SmartContract) Initialize(sdk kalpsdk.TransactionContextInterface, name
 		return false, fmt.Errorf("client is not authorized to initialize contract")
 	}
 
-	// Check contract options are not already set, client is not authorized to change them once intitialized
 	bytes, err := sdk.GetState(nameKey)
 	if err != nil {
-		return false, fmt.Errorf("failed to get Name: %v", err)
+		return false, fmt.Errorf("failed to get token name: %v", err)
 	}
 	if bytes != nil {
-		return false, fmt.Errorf("contract options are already set, client is not authorized to change them")
+		return false, fmt.Errorf("contract is already initialized")
 	}
 
 	err = sdk.PutStateWithoutKYC(nameKey, []byte(name))
@@ -335,65 +192,73 @@ func (s *SmartContract) Initialize(sdk kalpsdk.TransactionContextInterface, name
 
 	err = sdk.PutStateWithoutKYC(symbolKey, []byte(symbol))
 	if err != nil {
-		return false, fmt.Errorf("failed to set symbol: %v", err)
+		return false, fmt.Errorf("failed to set token symbol: %v", err)
 	}
 
 	err = sdk.PutStateWithoutKYC(decimalsKey, []byte(decimals))
 	if err != nil {
-		return false, fmt.Errorf("failed to set token name: %v", err)
+		return false, fmt.Errorf("failed to set token decimals: %v", err)
 	}
 
+	log.Println("Contract initialized")
 	return true, nil
 }
 
-// Helper Functions
+// Helper functions
 
-// transferHelper is a helper function that transfers tokens from the "from" address to the "to" address
-// Dependant functions include Transfer and TransferFrom
-func transferHelper(sdk kalpsdk.TransactionContextInterface, from string, to string, value int) error {
-
-	if from == to {
-		return fmt.Errorf("cannot transfer to and from same client account")
-	}
-
-	if value < 0 { // transfer of 0 is allowed in ERC-20, so just validate against negative amounts
-		return fmt.Errorf("transfer amount cannot be negative")
-	}
-
-	fromCurrentBalanceBytes, err := sdk.GetState(from)
+// getBalance retrieves the balance of a given account from the ledger
+func getBalance(sdk kalpsdk.TransactionContextInterface, account string) (int, error) {
+	balanceBytes, err := sdk.GetState(account)
 	if err != nil {
-		return fmt.Errorf("failed to read client account %s from world state: %v", from, err)
+		return 0, fmt.Errorf("failed to get state for account %s: %v", account, err)
+	}
+	if balanceBytes == nil {
+		return 0, nil
 	}
 
-	if fromCurrentBalanceBytes == nil {
-		return fmt.Errorf("client account %s has no balance", from)
-	}
+	balance, _ := strconv.Atoi(string(balanceBytes))
+	return balance, nil
+}
 
-	fromCurrentBalance, _ := strconv.Atoi(string(fromCurrentBalanceBytes)) // Error handling not needed since Itoa() was used when setting the account balance, guaranteeing it was an integer.
-
-	if fromCurrentBalance < value {
-		return fmt.Errorf("client account %s has insufficient funds", from)
-	}
-
-	toCurrentBalanceBytes, err := sdk.GetState(to)
+// getTotalSupply retrieves the total supply from the ledger
+func getTotalSupply(sdk kalpsdk.TransactionContextInterface) (int, error) {
+	totalSupplyBytes, err := sdk.GetState(totalSupplyKey)
 	if err != nil {
-		return fmt.Errorf("failed to read recipient account %s from world state: %v", to, err)
+		return 0, fmt.Errorf("failed to get total supply: %v", err)
+	}
+	if totalSupplyBytes == nil {
+		return 0, nil
 	}
 
-	var toCurrentBalance int
-	// If recipient current balance doesn't yet exist, we'll create it with a current balance of 0
-	if toCurrentBalanceBytes == nil {
-		toCurrentBalance = 0
-	} else {
-		toCurrentBalance, _ = strconv.Atoi(string(toCurrentBalanceBytes)) // Error handling not needed since Itoa() was used when setting the account balance, guaranteeing it was an integer.
+	totalSupply, _ := strconv.Atoi(string(totalSupplyBytes))
+	return totalSupply, nil
+}
+
+// transferHelper handles the transfer of tokens between two accounts
+func transferHelper(sdk kalpsdk.TransactionContextInterface, from, to string, value int) error {
+	if value <= 0 {
+		return fmt.Errorf("transfer amount must be positive")
 	}
 
-	fromUpdatedBalance, err := sub(fromCurrentBalance, value)
+	fromBalance, err := getBalance(sdk, from)
+	if err != nil {
+		return err
+	}
+	if fromBalance < value {
+		return fmt.Errorf("insufficient funds")
+	}
+
+	toBalance, err := getBalance(sdk, to)
 	if err != nil {
 		return err
 	}
 
-	toUpdatedBalance, err := add(toCurrentBalance, value)
+	fromUpdatedBalance, err := sub(fromBalance, value)
+	if err != nil {
+		return err
+	}
+
+	toUpdatedBalance, err := add(toBalance, value)
 	if err != nil {
 		return err
 	}
@@ -408,52 +273,36 @@ func transferHelper(sdk kalpsdk.TransactionContextInterface, from string, to str
 		return err
 	}
 
-	log.Printf("client %s balance updated from %d to %d", from, fromCurrentBalance, fromUpdatedBalance)
-	log.Printf("recipient %s balance updated from %d to %d", to, toCurrentBalance, toUpdatedBalance)
-
 	return nil
 }
 
-// add two number checking for overflow
-func add(b int, q int) (int, error) {
-
-	// Check overflow
-	var sum int
-	sum = q + b
-
-	if (sum < q || sum < b) == (b >= 0 && q >= 0) {
-		return 0, fmt.Errorf("Math: addition overflow occurred %d + %d", b, q)
-	}
-
-	return sum, nil
+// recordTransaction stores a successful transaction in the transactions log
+func (s *SmartContract) recordTransaction(from string, to string, value int) {
+	s.transactions = append(s.transactions, event{From: from, To: to, Value: value})
 }
 
-// Checks that contract options have been already initialized
+// checkInitialized verifies whether the contract is initialized
 func checkInitialized(sdk kalpsdk.TransactionContextInterface) (bool, error) {
 	tokenName, err := sdk.GetState(nameKey)
 	if err != nil {
 		return false, fmt.Errorf("failed to get token name: %v", err)
 	}
-
-	if tokenName == nil {
-		return false, nil
-	}
-
-	return true, nil
+	return tokenName != nil, nil
 }
 
-// sub two number checking for overflow
-func sub(b int, q int) (int, error) {
-
-	// sub two number checking
-	if q <= 0 {
-		return 0, fmt.Errorf("Error: the subtraction number is %d, it should be greater than 0", q)
+// add adds two numbers with overflow checking
+func add(a, b int) (int, error) {
+	sum := a + b
+	if (sum < a || sum < b) == (a >= 0 && b >= 0) {
+		return 0, fmt.Errorf("addition overflow")
 	}
-	if b < q {
-		return 0, fmt.Errorf("Error: the number %d is not enough to be subtracted by %d", b, q)
-	}
-	var diff int
-	diff = b - q
+	return sum, nil
+}
 
-	return diff, nil
+// sub subtracts two numbers with underflow checking
+func sub(a, b int) (int, error) {
+	if a < b {
+		return 0, fmt.Errorf("underflow occurred: %d is less than %d", a, b)
+	}
+	return a - b, nil
 }

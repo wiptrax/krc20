@@ -8,10 +8,14 @@ import (
 
 func main() {
 
-	contract := kalpsdk.Contract{IsPayableContract: false}
+	contract := kalpsdk.Contract{IsPayableContract: false,
+	}
 
 	contract.Logger = kalpsdk.NewLogger()
-	chaincode, err := kalpsdk.NewChaincode(&SmartContract{contract})
+	// Initialize the SmartContract using the NewSmartContract constructor
+	smartContract := NewSmartContract(contract)
+	// Create a new instance of your KalpContractChaincode with your smart contract
+	chaincode, err := kalpsdk.NewChaincode(smartContract)
 	contract.Logger.Info("My KAPL SDK sm4")
 
 	// Create a new instance of your KalpContractChaincode with your smart contract
