@@ -42,7 +42,7 @@ const Home: React.FC = () => {
               </h2>
               <p className="mt-6 text-center text-lg leading-6 text-gray-600 dark:text-gray-200">
                 Wiptrax Token is Brand new Token made on{' '}
-                <span className="cursor-wait opacity-70">Kalp DLT Chain</span>
+                <span className=" cursor-pointer opacity-70">Kalp DLT Chain</span>
               </p>
               <div className=' relative flex items-center justify-center -z-10 mt-8 md:mt-10'>
               <Image
