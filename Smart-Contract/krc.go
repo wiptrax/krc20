@@ -167,6 +167,11 @@ func (s *SmartContract) TransferFrom(sdk kalpsdk.TransactionContextInterface, fr
 	return nil
 }
 
+// GetTransactions returns all successful transactions stored in the smart contract
+func (s *SmartContract) GetTransactions() []event {
+    return s.transactions
+}
+
 // Initialize sets the name, symbol, and decimals for the contract
 func (s *SmartContract) Initialize(sdk kalpsdk.TransactionContextInterface, name, symbol, decimals string) (bool, error) {
 	clientMSPID, err := sdk.GetClientIdentity().GetMSPID()
