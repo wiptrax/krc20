@@ -1,77 +1,59 @@
 "use client"
-import React, { useEffect, useState } from 'react'
-import { useKalpApi } from '@/hooks/useKalpAPI'
+import React from 'react'
+import Image from 'next/image'
+import starImage from "@/app/star.png"
+import { ArrowRight } from 'lucide-react';
+
 
 const Home: React.FC = () => {
-
- 
-    const { claim, balanceOf, totalSupply, loading } = useKalpApi();
-    const [walletAddress, setWalletAddress] = useState("");
-    const [balance, setBalance] = useState(0);
-    const [totalAirdrop, setTotalAirdrop] = useState(0);
-  
-    const handleClaim = async () => {
-      try {
-        const data = await claim(walletAddress);
-        await handleTotalSupply();
-        console.log('Claim successful:', data);
-      } catch (err) {
-        console.error('Claim error:', err);
-      }
-    };
-  
-    const handleBalanceOf = async () => {
-      try {
-        const data = await balanceOf(walletAddress);
-        setBalance(data.result.result)
-        console.log('Balance:', data);
-      } catch (err) {
-        console.error('BalanceOf error:', err);
-      }
-    };
-  
-    const handleTotalSupply = async () => {
-      try {
-        const data = await totalSupply();
-        setTotalAirdrop(data.result.result)
-        console.log('Total Supply:', data);
-      } catch (err) {
-        console.error('TotalSupply error:', err);
-      }
-    };
-  
-    useEffect(() => {
-      handleTotalSupply()
-    }, []);
   
     return (
-      <div className='flex flex-col justify-center items-center'>
-  
-        <div className='border-2 py-4 px-16 mt-8 rounded-lg text-4xl w-fit'>Airdrop Machine</div>
-  
-        <div className='flex flex-col border-2 p-8 mt-8 rounded-lg w-fit gap-3'>
-          Enter Your Address To Calim :
-          <input placeholder='Enter your wallet address' type="text" className='border p-2 rounded-lg w-56 text-black' onChange={(e) => setWalletAddress(e.target.value)} />
-          <button className='border-2 p-2 rounded-lg bg-blue-500 hover:bg-blue-400 text-white disabled:bg-blue-400' onClick={handleClaim} disabled={loading}>{loading ? "Please wait.. " : "Claim"}</button>
+      <>
+      <div className="absolute inset-0 -z-10 h-full w-full items-center px-5 py-14 [background:radial-gradient(125%_125%_at_50%_10%,#000_40%,#63e_100%)] overflow-hidden" >
+        <div className="relative mx-auto flex max-w-2xl flex-col items-center">
+              <div className="mb-8 flex">
+              <a
+                  href="/dashboard"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex"
+                >
+                  <span className="relative inline-block overflow-hidden rounded-full p-[1px]">
+                    <span className="absolute inset-[-1000%] animate-[spin_2s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,#a9a9a9_0%,#0c0c0c_50%,#a9a9a9_100%)] dark:bg-[conic-gradient(from_90deg_at_50%_50%,#171717_0%,#737373_50%,#171717_100%)]" />
+                    <div className="inline-flex h-full w-full cursor-pointer justify-center rounded-full bg-white px-3 py-1 text-xs font-medium leading-5 text-slate-600 backdrop-blur-xl dark:bg-black dark:text-slate-200">
+                      Grab WPTX ⚡️
+                      <span className="inline-flex items-center pl-2 text-black dark:text-white">
+                        Now{' '}
+                        <ArrowRight
+                          className="pl-0.5 text-black dark:text-white"
+                          size={16}
+                        />
+                      </span>
+                    </div>
+                  </span>
+                  </a>
+              </div>
         </div>
-  
-        <div className='lg:flex gap-12'>
-          <div className='flex flex-col border-2 p-8 mt-8 rounded-lg w-fit gap-3'>
-            Total Airdrop Token Claimed :
-            <p className='text-6xl text-blue-500 font-bold w-56'>{totalAirdrop}</p>
-          </div>
-  
-          <div className='flex flex-col border-2 p-8 mt-8 rounded-lg w-fit gap-3'>
-            My Balance :
-            <input placeholder='Enter your wallet address' type="text" className='border p-2 rounded-lg w-56 text-black' onChange={(e) => setWalletAddress(e.target.value)} />
-            <button className='border-2 p-2 rounded-lg bg-blue-500 hover:bg-blue-400 text-white' onClick={handleBalanceOf}>See</button>
-  
-            <p className='text-2xl font-bold w-56'>Balance: <span className='text-blue-500 text-4xl'> {balance}</span></p>
-          </div>
-  
-        </div>
-  
+              <h2 className="text-center text-3xl font-medium text-gray-900 dark:text-gray-50 sm:text-6xl md: mt-10">
+                Airdrop for{' '}
+                <span className="animate-text-gradient inline-flex bg-gradient-to-r from-neutral-900 via-slate-500 to-neutral-500 bg-[100%_auto] bg-clip-text leading-tight text-transparent dark:from-neutral-100 dark:via-slate-400 dark:to-neutral-400">
+                  WPTX token
+                </span>
+              </h2>
+              <p className="mt-6 text-center text-lg leading-6 text-gray-600 dark:text-gray-200">
+                Wiptrax Token is Brand new Token made on{' '}
+                <span className="cursor-wait opacity-70">Kalp DLT Chain</span>
+              </p>
+              <div className=' relative flex items-center justify-center -z-10 mt-8 md:mt-10'>
+              <Image
+              src={starImage}
+              width={500}
+              height={500}
+              alt="Picture of the author"
+              />
+              </div>
       </div>
+    </>
     )
   }
 
