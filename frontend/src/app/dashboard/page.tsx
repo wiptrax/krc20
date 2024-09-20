@@ -1,16 +1,14 @@
 "use client"
 import React, { useEffect, useState } from 'react'
 import { useKalpApi } from '@/hooks/useKalpAPI'
-import toast from "react-hot-toast";
 
 const Page = () => {
 
  
-  const { claim, balanceOf, totalSupply, getTransactions, transferFrom ,loading } = useKalpApi();
+  const { claim, balanceOf, totalSupply, transferFrom ,loading } = useKalpApi();
   const [walletAddress, setWalletAddress] = useState("");
   const [balance, setBalance] = useState(0);
   const [totalAirdrop, setTotalAirdrop] = useState(0);
-  const [transactions, setTransaction] = useState({});
   const [fromtrx, setFromTrx] = useState("");
   const [totrx, setToTrx] = useState("");
   const [valuetrx, setValueTrx] = useState(1);
@@ -53,20 +51,11 @@ const Page = () => {
       console.error('TotalSupply error:', err);
     }
   };
-  const handleGetTransactions = async () => {
-    try {
-      const data = await getTransactions();
-      setTransaction(data.result.result)
-      console.log('Txn:', data);
-    } catch (err) {
-      console.error('TotalSupply error:', err);
-    }
-  };
+
 
   useEffect(() => {
     handleTotalSupply()
-    handleGetTransactions()
-  }, []);
+  }, [handleClaim]);
 
   return (
     <div className="absolute inset-0 -z-10 h-screen w-full items-center px-5 py-10 [background:radial-gradient(125%_125%_at_50%_10%,#000_40%,#63e_100%)]">
